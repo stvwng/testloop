@@ -1,0 +1,32 @@
+[project]
+name = "testloop"
+version = "0.1.0"
+description = "LLM engineering loop: edits source code until a failing test suite passes, without touching tests or hardcoding answers."
+readme = "README.md"
+authors = [{ name = "Steve Wang", email = "stevewang@alumni.stanford.edu" }]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.80",
+    "pydantic>=2.7",
+    "click>=8.1",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+testloop = "testloop.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-mock>=3.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/live"]
+norecursedirs = ["fixtures", ".venv", "node_modules"]
+markers = ["live: end-to-end tests that call the real Anthropic API (deselected by default)"]
+addopts = "-m 'not live'"
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"

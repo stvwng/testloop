@@ -1,0 +1,7 @@
+{
+  "name": "ts-calc-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run" },
+  "devDependencies": { "vitest": "^3.0.0" }
+}

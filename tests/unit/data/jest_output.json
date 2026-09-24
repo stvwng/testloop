@@ -1,0 +1,15 @@
+{
+  "numTotalTests": 2,
+  "success": false,
+  "testResults": [
+    {
+      "name": "/repo/src/__tests__/calc.test.js",
+      "status": "failed",
+      "message": "",
+      "assertionResults": [
+        {"ancestorTitles": [], "fullName": "adds", "title": "adds", "status": "passed", "duration": 1, "failureMessages": []},
+        {"ancestorTitles": [], "fullName": "divides", "title": "divides", "status": "failed", "duration": 1, "failureMessages": ["Error: expect(received).toBe(expected)\n\nExpected: 3.5\nReceived: 3"]}
+      ]
+    }
+  ]
+}

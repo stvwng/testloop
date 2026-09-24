@@ -1,0 +1,37 @@
+# Example: run testloop only when the normal test job fails, and only on pull requests.
+# Copy into .github/workflows/ of the target repository.
+name: tests
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e . pytest
+      - run: pytest
+
+  fix-tests:
+    needs: [test]
+    if: failure() && !contains(github.event.head_commit.message, '[testloop]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e . pytest
+      - uses: your-org/testloop@v1
+        with:
+          runner: pytest
+          max-iterations: 3
+          time-budget: 20m
+          max-cost-usd: 15
+          publish: pull-request
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

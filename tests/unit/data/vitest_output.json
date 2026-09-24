@@ -1,0 +1,15 @@
+{
+  "numTotalTests": 3,
+  "success": false,
+  "testResults": [
+    {
+      "name": "/repo/calc.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        {"ancestorTitles": ["calc"], "fullName": "calc adds", "title": "adds", "status": "passed", "duration": 2, "failureMessages": []},
+        {"ancestorTitles": ["calc"], "fullName": "calc divides with true division", "title": "divides with true division", "status": "failed", "duration": 3, "failureMessages": ["AssertionError: expected 3 to be 3.5\n    at calc.test.ts:10:24"]},
+        {"ancestorTitles": ["calc"], "fullName": "calc skipped one", "title": "skipped one", "status": "skipped", "duration": 0, "failureMessages": []}
+      ]
+    }
+  ]
+}

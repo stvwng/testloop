@@ -1,0 +1,70 @@
+name: testloop
+description: Fix failing tests with an LLM agent without modifying the tests, and open a pull request with the change.
+inputs:
+  runner:
+    description: pytest | vitest | jest | shell
+    required: true
+  test-command:
+    description: Override the test command (required for shell).
+    required: false
+  max-iterations:
+    default: "3"
+  time-budget:
+    default: "20m"
+  max-cost-usd:
+    default: "15"
+  model:
+    default: claude-opus-5
+  publish:
+    description: none | branch | pull-request
+    default: pull-request
+  anthropic-api-key:
+    required: true
+  github-token:
+    description: Token with contents:write and pull-requests:write, used by gh.
+    required: false
+    default: ${{ github.token }}
+outputs:
+  status:
+    value: ${{ steps.run.outputs.status }}
+  exit-code:
+    value: ${{ steps.run.outputs.exit_code }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - shell: bash
+      run: pipx install "${{ github.action_path }}" || pip install "${{ github.action_path }}"
+    - id: run
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        set +e
+        testloop run --runner "${{ inputs.runner }}" \
+          ${{ inputs.test-command && format('--test-command "{0}"', inputs.test-command) || '' }} \
+          --max-iterations "${{ inputs.max-iterations }}" \
+          --time-budget "${{ inputs.time-budget }}" \
+          --max-cost-usd "${{ inputs.max-cost-usd }}" \
+          --model "${{ inputs.model }}" \
+          --run-dir .testloop/ci-run \
+          --output-patch .testloop/ci-run/fix.patch \
+          --result-json .testloop/ci-run/result.json
+        code=$?
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        echo "status=$(python -c 'import json;print(json.load(open(".testloop/ci-run/result.json"))["status"])' 2>/dev/null || echo unknown)" >> "$GITHUB_OUTPUT"
+        exit 0
+    - uses: actions/upload-artifact@v4
+      with:
+        name: testloop-run
+        path: .testloop/ci-run
+        if-no-files-found: ignore
+    - if: inputs.publish != 'none' && steps.run.outputs.status == 'passed'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: testloop publish --result .testloop/ci-run/result.json --mode "${{ inputs.publish }}"
+    - shell: bash
+      run: exit "${{ steps.run.outputs.exit_code }}"
