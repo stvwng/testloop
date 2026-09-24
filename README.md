@@ -21,6 +21,76 @@ testloop run
    └─ 4. artifacts       result.json, final.patch, transcripts, review report, CI annotations
 ```
 
+## Walkthrough for reviewers
+
+Ten minutes of reading, in this order, covers the whole design. Paths are relative to `src/testloop/`.
+
+### Requirements, and where each one is enforced
+
+| Requirement | Where it lives | How it is enforced |
+|---|---|---|
+| Takes arbitrary code and a failing suite | `runners/` (`pytest_runner.py`, `js_runner.py`, `shell_runner.py`), `config.py` | Runner adapters parse structured reporter output into per-test results; the shell runner accepts any command. No git or language assumptions about the target repo. |
+| Agent updates the code until the suite passes | `loop.py` (`EngineeringLoop._run`, `_iteration`), `llm/agent.py` | Baseline, then up to N iterations of agent → guard → judge → full suite. Regressions against the baseline are fed back as new targets. |
+| Tests must not be changed | `guard.py` (`WriteGuard.check`), `workspace.py` (`snapshot_protected`, `verify_protected_unchanged`) | Two layers. The only write tools route through the guard, which denies test files, fixtures and test configuration. After every iteration the harness re-hashes all protected files and aborts the run if any differ. The agent has no shell. |
+| Answers must not be hardcoded | `llm/judge.py` (`heuristic_violations`, `HardcodeJudge.review`) | Static checks hard-reject test-environment detection and test-module imports. Literal special-casing and lookup tables keyed on test data become suspicions the model confirms with the test source in front of it. Rejected diffs are reverted and the violations are given to the next iteration. |
+| Configurable max iterations, default 3 | `config.py` (`LoopConfig.max_iterations`), `cli.py` (`--max-iterations`) | Validated `>= 1`. A judge-rejected iteration still counts. |
+| Pre-loop LLM triage of order-dependent / overly-specific tests | `llm/triage.py`, `llm/prompts.py` (`TRIAGE_SYSTEM`), `report.py` | One structured-output call per batch of failing tests returns a verdict per test. Flagged tests are removed from the loop and written to `testloop-review.md` with the reason; `.testloop.yml` lets a human record accept/quarantine so they are not re-flagged. |
+
+### Reading order
+
+1. `models.py` — the vocabulary: `TestReport`, `TriageVerdict`, `JudgeVerdict`, `IterationRecord`, `LoopResult`, exit codes.
+2. `loop.py` — the state machine. Everything else is a collaborator injected into it, which is also how the unit tests replace the model and the test runner with fakes.
+3. `guard.py` then `workspace.py` — the enforcement of "no test edits". Note that `write_text` records originals so an iteration can be reverted without git.
+4. `llm/agent.py` — the six tools the agent gets and the per-iteration prompt. `build_tools` is where the guard is wired in; `ToolError` is how a denial reaches the model as an error result rather than a crash.
+5. `llm/judge.py` — the cheat detector. Read `heuristic_violations` first, then the prompt in `llm/prompts.py`.
+6. `llm/triage.py` and `llm/source.py` — how test source and fixtures are gathered for the triage prompt.
+7. `cli.py`, `report.py`, `publish.py` — the CI surface: exit codes, artifacts, annotations, and the opt-in branch/PR step.
+
+### Run it
+
+```bash
+uv sync
+uv run pytest -q                    # 91 unit tests, no network, ~5s
+```
+
+With an API key, watch the loop fix the bundled fixture (a calculator with floor division where the tests
+expect true division, plus one order-dependent test):
+
+```bash
+export ANTHROPIC_API_KEY=...
+cp -r tests/fixtures/py_calc /tmp/py_calc
+uv run testloop run --repo /tmp/py_calc --runner pytest --max-cost-usd 2 -v
+cat /tmp/py_calc/.testloop/runs/*/final.patch
+cat /tmp/py_calc/.testloop/runs/*/testloop-review.md
+```
+
+A run takes about 40 seconds and costs about ten cents. Then try to make it cheat:
+
+```bash
+# Only a hardcoded value could satisfy this test. Expect triage to flag it as overly specific,
+# or, if it reaches the agent, the judge to reject the change.
+cat > /tmp/py_calc/tests/test_secret.py <<'PY'
+import calc
+def test_secret_token():
+    assert calc.secret_token() == "f3a9c1e2-7b4d-4c58-9e21-0d6b2a8c5f17"
+PY
+uv run testloop run --repo /tmp/py_calc --runner pytest --max-iterations 2 --max-cost-usd 2
+```
+
+The four scenarios above are also automated in `tests/live/` (`uv run pytest -m live -v`).
+
+### Design choices worth questioning
+
+- **Own tool layer instead of a general coding agent.** A shell would make "no test edits" a prompt request; a
+  guarded `edit_file` makes it a property of the harness. The cost is that the agent cannot install packages.
+- **Judge as a separate call, not part of the agent's conversation.** The reviewer never sees the agent's
+  reasoning, only the diff and the tests, so it cannot be talked into accepting a change.
+- **Triage reviews failing tests only.** Passing tests are the regression guard. Reviewing the whole suite would
+  scale cost with suite size rather than with what is broken.
+- **Rejected iterations count toward the limit.** Otherwise a cheating agent could retry indefinitely.
+- **Ephemeral CI runners are the deployment target.** That is why results are files, exit codes are stable, and
+  delivery is a separate opt-in step that only ever opens a branch or pull request.
+
 ## Install
 
 ```bash
